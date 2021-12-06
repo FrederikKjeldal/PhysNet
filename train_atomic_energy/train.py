@@ -189,12 +189,8 @@ with tf.name_scope("loss"):
         qloss_t, qmse_t, qmae_t = tf.constant(0.0), tf.constant(0.0), tf.constant(0.0)
         qloss_v, qmse_v, qmae_v = tf.constant(0.0), tf.constant(0.0), tf.constant(0.0)
     #atomic charges
-    if data.Qa is not None:
-        qaloss_t, qamse_t, qamae_t = calculate_errors(Qaref_t, Qa_t)
-        qaloss_v, qamse_v, qamae_v = calculate_errors(Qaref_v, Qa_v)
-    else:
-        qaloss_t, qamse_t, qamae_t = tf.constant(0.0), tf.constant(0.0), tf.constant(0.0)
-        qaloss_v, qamse_v, qamae_v = tf.constant(0.0), tf.constant(0.0), tf.constant(0.0)
+    qaloss_t, qamse_t, qamae_t = tf.constant(0.0), tf.constant(0.0), tf.constant(0.0)
+    qaloss_v, qamse_v, qamae_v = tf.constant(0.0), tf.constant(0.0), tf.constant(0.0)
     #dipole
     if data.D is not None:
         dloss_t, dmse_t, dmae_t = calculate_errors(Dref_t, D_t)
@@ -217,13 +213,6 @@ with tf.name_scope("loss"):
     if data.Ea is not None:
         eloss_train = ealoss_t
         eloss_valid = ealoss_v
-
-    #atomic charges are present, so they replace the normal charge loss and nullify dipole loss
-    if data.Qa is not None:
-        qloss_train = qaloss_t
-        qloss_valid = qaloss_v
-        dloss_train = tf.constant(0.0)
-        dloss_valid = tf.constant(0.0)
 
     #define loss function (used to train the model)
     l2loss = tf.reduce_mean(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)) 
