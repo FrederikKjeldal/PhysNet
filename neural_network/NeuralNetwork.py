@@ -147,6 +147,15 @@ class NeuralNetwork:
             #apply scaling/shifting
             Ea = tf.gather(self.Escale, Z) * Ea + tf.gather(self.Eshift, Z) + 0*tf.reduce_sum(R, -1) #last term necessary to guarantee no "None" in force evaluation
             Qa = tf.gather(self.Qscale, Z) * Qa + tf.gather(self.Qshift, Z)
+
+            #add electrostatic and dispersion contribution to atomic energy
+            if self.use_electrostatic:
+                Ea += self.electrostatic_energy_per_atom(Dij_lr, Qa, idx_i, idx_j)
+            if self.use_dispersion:
+                if self.lr_cut is not None:   
+                    Ea += d3_autoev*edisp(Z, Dij_lr/d3_autoang, idx_i, idx_j, s6=self.s6, s8=self.s8, a1=self.a1, a2=self.a2, cutoff=self.lr_cut/d3_autoang)
+                else:
+                    Ea += d3_autoev*edisp(Z, Dij_lr/d3_autoang, idx_i, idx_j, s6=self.s6, s8=self.s8, a1=self.a1, a2=self.a2)
         return Ea, Qa, Dij_lr, nhloss
 
     #calculates the energy given the scaled atomic properties (in order to prevent recomputation if atomic properties are calculated)
@@ -154,14 +163,6 @@ class NeuralNetwork:
         with tf.name_scope("energy_from_atomic_properties"):
             if batch_seg is None:
                 batch_seg = tf.zeros_like(Z)
-            #add electrostatic and dispersion contribution to atomic energy
-            if self.use_electrostatic:
-                Ea += self.electrostatic_energy_per_atom(Dij, Qa, idx_i, idx_j)
-            if self.use_dispersion:
-                if self.lr_cut is not None:   
-                    Ea += d3_autoev*edisp(Z, Dij/d3_autoang, idx_i, idx_j, s6=self.s6, s8=self.s8, a1=self.a1, a2=self.a2, cutoff=self.lr_cut/d3_autoang)
-                else:
-                    Ea += d3_autoev*edisp(Z, Dij/d3_autoang, idx_i, idx_j, s6=self.s6, s8=self.s8, a1=self.a1, a2=self.a2)
         return tf.squeeze(tf.segment_sum(Ea, batch_seg))
 
     #calculates the energy and forces given the scaled atomic atomic properties (in order to prevent recomputation if atomic properties are calculated)
