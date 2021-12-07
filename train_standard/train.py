@@ -9,12 +9,12 @@ import string
 import random
 from shutil import copyfile
 from datetime import datetime
-from neural_network.NeuralNetwork import *
-from neural_network.activation_fn import *
-from training.Trainer        import *
-from training.DataContainer import *
-from training.DataProvider  import *
-from training.DataQueue     import *
+from physnet.neural_network.NeuralNetwork import *
+from physnet.neural_network.activation_fn import *
+from physnet.training.Trainer        import *
+from physnet.training.DataContainer import *
+from physnet.training.DataProvider  import *
+from physnet.training.DataQueue     import *
 
 #used for creating a "unique" id for a run (almost impossible to generate the same twice)
 def id_generator(size=8, chars=string.ascii_uppercase + string.ascii_lowercase + string.digits):
