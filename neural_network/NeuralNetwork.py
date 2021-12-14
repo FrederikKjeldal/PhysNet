@@ -99,7 +99,7 @@ class NeuralNetwork:
                     OutputBlock(F, num_residual_output, activation_fn=activation_fn, seed=seed, scope="output_block"+str(i), keep_prob=self.keep_prob, dtype=dtype))
                                 
             #saver node to save/restore the model
-            self._saver = tf.train.Saver(self.variables, save_relative_paths=True, max_to_keep=50)
+            self._saver = tf.train.Saver(self.variables, save_relative_paths=True, max_to_keep=1)
 
     def calculate_interatomic_distances(self, R, idx_i, idx_j, offsets=None):
         #calculate interatomic distances
