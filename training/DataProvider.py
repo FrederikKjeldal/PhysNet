@@ -21,7 +21,7 @@ class DataProvider:
         #store indices of training, validation and test data
         self._idx_train = idx[0:self.ntrain]
         self._idx_valid = idx[self.ntrain:self.ntrain+self.nvalid]
-        self._idx_test  = idx[self.ntrain+self.nvalid:]
+        self._idx_test  = sorted(idx[self.ntrain+self.nvalid:], reverse=True)
 
         #initialize mean/stdev of properties to None, only get calculated if requested
         self._EperA_mean  = None
