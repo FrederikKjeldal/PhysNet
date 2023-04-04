@@ -130,8 +130,8 @@ nn = NeuralNetwork(F=args.num_features,
 
 logging.info("prepare training...")
 #generate data queues for efficient training
-train_queue = DataQueue(data_provider.next_batch, capacity=1000, scope="train_data_queue")
-valid_queue = DataQueue(data_provider.next_valid_batch, capacity=args.num_valid//args.valid_batch_size, scope="valid_data_queue")
+train_queue = DataQueue(data_provider.next_batch, capacity=1, scope="train_data_queue")
+valid_queue = DataQueue(data_provider.next_valid_batch, capacity=1, scope="valid_data_queue")
 
 #get values for training and validation set
 Eref_t, Earef_t, Fref_t, Faref_t, Z_t, Dref_t, Qref_t, Qaref_t, R_t, idx_i_t, idx_j_t, batch_seg_t = train_queue.dequeue_op
