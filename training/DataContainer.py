@@ -191,7 +191,7 @@ class DataContainer:
             else:
                 data['F'].extend([[np.nan,np.nan,np.nan]])
             if self.Fa is not None:
-                data['Fa'].extend(self.F[i,:N,:N,:].tolist())
+                data['Fa'].extend(self.Fa[i,:N,:N,:].tolist())
             else:
                 data['Fa'].extend([[np.nan,np.nan,np.nan,np.nan]])
             data['idx_i'].extend(np.reshape(self.idx_i[:N,:N-1]+Ntot,[-1]).tolist())
