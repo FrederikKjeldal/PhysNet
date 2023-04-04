@@ -53,6 +53,7 @@ parser.add_argument("--decay_steps", type=int, help="decay the learning rate eve
 parser.add_argument("--decay_rate", type=float, help="factor with which the learning rate gets multiplied by every decay_steps steps")
 parser.add_argument("--batch_size", type=int, help="batch size used per training step")
 parser.add_argument("--valid_batch_size", type=int, help="batch size used for going through validation_set")
+parser.add_argument('--energy_weight',  default=1.0, type=float, help="this defines the energy contribution to the loss function relative to the energy contribution (to take into account the different numerical range)")
 parser.add_argument('--force_weight',  default=52.91772105638412, type=float, help="this defines the force contribution to the loss function relative to the energy contribution (to take into account the different numerical range)")
 parser.add_argument('--atomic_energy_weight',  default=0, type=float, help="this defines the atomic contribution to the loss function relative to the energy contribution (to take into account the different numerical range)")
 parser.add_argument('--atomic_energy_force_weight',  default=0, type=float, help="this defines the atomic energy force contribution to the loss function relative to the energy contribution (to take into account the different numerical range)")
