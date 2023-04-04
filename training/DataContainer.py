@@ -51,6 +51,11 @@ class DataContainer:
             self._F = dictionary['F'] 
         else:
             self._F = None
+        #reference atomic energy forces
+        if 'Fa' in dictionary:
+            self._Fa = dictionary['Fa'] 
+        else:
+            self._Fa = None
 
         #maximum number of atoms per molecule
         self._N_max    = self.Z.shape[1] 
@@ -110,6 +115,10 @@ class DataContainer:
     @property
     def F(self):
         return self._F
+    
+    @property
+    def Fa(self):
+        return self._Fa
 
     #indices for atoms i (when calculating interactions)
     @property
@@ -130,7 +139,8 @@ class DataContainer:
 
         data = {'E':         [],
                 'Ea':        [],    
-                'F':         [],
+                'F':         [], 
+                'Fa':        [],
                 'Z':         [],
                 'D':         [],
                 'Q':         [],
@@ -180,6 +190,10 @@ class DataContainer:
                 data['F'].extend(self.F[i,:N,:].tolist())
             else:
                 data['F'].extend([[np.nan,np.nan,np.nan]])
+            if self.Fa is not None:
+                data['Fa'].extend(self.F[i,:N,:N,:].tolist())
+            else:
+                data['Fa'].extend([[np.nan,np.nan,np.nan,np.nan]])
             data['idx_i'].extend(np.reshape(self.idx_i[:N,:N-1]+Ntot,[-1]).tolist())
             data['idx_j'].extend(np.reshape(self.idx_j[:N,:N-1]+Ntot,[-1]).tolist())
             #offsets could be added in case they are need

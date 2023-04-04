@@ -54,6 +54,8 @@ parser.add_argument("--decay_rate", type=float, help="factor with which the lear
 parser.add_argument("--batch_size", type=int, help="batch size used per training step")
 parser.add_argument("--valid_batch_size", type=int, help="batch size used for going through validation_set")
 parser.add_argument('--force_weight',  default=52.91772105638412, type=float, help="this defines the force contribution to the loss function relative to the energy contribution (to take into account the different numerical range)")
+parser.add_argument('--atomic_energy_weight',  default=0, type=float, help="this defines the atomic contribution to the loss function relative to the energy contribution (to take into account the different numerical range)")
+parser.add_argument('--atomic_energy_force_weight',  default=0, type=float, help="this defines the atomic energy force contribution to the loss function relative to the energy contribution (to take into account the different numerical range)")
 parser.add_argument('--charge_weight', default=14.399645351950548, type=float, help="this defines the charge contribution to the loss function relative to the energy contribution (to take into account the different numerical range)")
 parser.add_argument('--dipole_weight', default=27.211386024367243, type=float, help="this defines the dipole contribution to the loss function relative to the energy contribution (to take into account the different numerical range)")
 parser.add_argument('--summary_interval', type=int, help="write a summary every N steps")
@@ -131,14 +133,16 @@ train_queue = DataQueue(data_provider.next_batch, capacity=1000, scope="train_da
 valid_queue = DataQueue(data_provider.next_valid_batch, capacity=args.num_valid//args.valid_batch_size, scope="valid_data_queue")
 
 #get values for training and validation set
-Eref_t, Earef_t, Fref_t, Z_t, Dref_t, Qref_t, Qaref_t, R_t, idx_i_t, idx_j_t, batch_seg_t = train_queue.dequeue_op
-Eref_v, Earef_v, Fref_v, Z_v, Dref_v, Qref_v, Qaref_v, R_v, idx_i_v, idx_j_v, batch_seg_v = valid_queue.dequeue_op
+Eref_t, Earef_t, Fref_t, Faref_t, Z_t, Dref_t, Qref_t, Qaref_t, R_t, idx_i_t, idx_j_t, batch_seg_t = train_queue.dequeue_op
+Eref_v, Earef_v, Fref_v, Faref_v, Z_v, Dref_v, Qref_v, Qaref_v, R_v, idx_i_v, idx_j_v, batch_seg_v = valid_queue.dequeue_op
 
 #calculate all necessary quantities (unscaled partial charges, energies, forces)
 Ea_t, Qa_t, Dij_t, nhloss_t = nn.atomic_properties(Z_t, R_t, idx_i_t, idx_j_t)
 Ea_v, Qa_v, Dij_v, nhloss_v = nn.atomic_properties(Z_v, R_v, idx_i_v, idx_j_v)
 energy_t, forces_t = nn.energy_and_forces_from_atomic_properties(Ea_t, Qa_t, Dij_t, Z_t, R_t, idx_i_t, idx_j_t, Qref_t, batch_seg_t)
 energy_v, forces_v = nn.energy_and_forces_from_atomic_properties(Ea_v, Qa_v, Dij_v, Z_v, R_v, idx_i_v, idx_j_v, Qref_v, batch_seg_v)
+atomic_energy_forces_t = nn.atomic_energy_forces_from_atomic_properties(Ea_t, R_t)
+atomic_energy_forces_v = nn.atomic_energy_forces_from_atomic_properties(Ea_v, R_v)
 #total charge
 Qtot_t = tf.segment_sum(Qa_t, batch_seg_t)
 Qtot_v = tf.segment_sum(Qa_v, batch_seg_v)
@@ -181,6 +185,13 @@ with tf.name_scope("loss"):
     else:
         floss_t, fmse_t, fmae_t = tf.constant(0.0), tf.constant(0.0), tf.constant(0.0)
         floss_v, fmse_v, fmae_v = tf.constant(0.0), tf.constant(0.0), tf.constant(0.0)
+    #atomic energy forces
+    if data.Fa is not None:
+        faloss_t, famse_t, famae_t = calculate_errors(Faref_t, atomic_energy_forces_t)
+        faloss_v, famse_v, famae_v = calculate_errors(Faref_v, atomic_energy_forces_v)
+    else:
+        faloss_t, famse_t, famae_t = tf.constant(0.0), tf.constant(0.0), tf.constant(0.0)
+        faloss_v, famse_v, famae_v = tf.constant(0.0), tf.constant(0.0), tf.constant(0.0)
     #charge
     if data.Q is not None:     
         qloss_t, qmse_t, qmae_t = calculate_errors(Qref_t, Qtot_t)
@@ -212,23 +223,15 @@ with tf.name_scope("loss"):
     floss_valid = floss_v
     qloss_valid = qloss_v
     dloss_valid = dloss_v
-
-    #atomic energies are present, so they replace the normal energy loss
-    if data.Ea is not None:
-        eloss_train = ealoss_t
-        eloss_valid = ealoss_v
-
-    #atomic charges are present, so they replace the normal charge loss and nullify dipole loss
-    if data.Qa is not None:
-        qloss_train = qaloss_t
-        qloss_valid = qaloss_v
-        dloss_train = tf.constant(0.0)
-        dloss_valid = tf.constant(0.0)
+    ealoss_train = ealoss_t
+    ealoss_valid = ealoss_v
+    faloss_train = faloss_t
+    faloss_valid = faloss_v
 
     #define loss function (used to train the model)
     l2loss = tf.reduce_mean(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)) 
-    loss_t = eloss_train + args.force_weight*floss_train + args.charge_weight*qloss_train + args.dipole_weight*dloss_train + args.nhlambda*nhloss_t + args.l2lambda*l2loss
-    loss_v = eloss_valid + args.force_weight*floss_valid + args.charge_weight*qloss_valid + args.dipole_weight*dloss_valid + args.nhlambda*nhloss_v + args.l2lambda*l2loss
+    loss_t = args.energy_weight*eloss_train + args.atomic_energy_weight*ealoss_train + args.atomic_energy_force_weight*faloss_train + args.force_weight*floss_train + args.charge_weight*qloss_train + args.dipole_weight*dloss_train + args.nhlambda*nhloss_t + args.l2lambda*l2loss
+    loss_v = args.energy_weight*eloss_valid + args.atomic_energy_weight*ealoss_valid + args.atomic_energy_force_weight*faloss_valid + args.force_weight*floss_valid + args.charge_weight*qloss_valid + args.dipole_weight*dloss_valid + args.nhlambda*nhloss_v + args.l2lambda*l2loss
 
 #create trainer
 trainer  = Trainer(args.learning_rate, args.decay_steps, args.decay_rate, scope="trainer")
@@ -261,33 +264,38 @@ if os.path.isfile(best_loss_file):
     best_ermse  = loss_file["ermse"].item()
     best_fmae   = loss_file["fmae"].item()
     best_frmse  = loss_file["frmse"].item()
+    best_famae  = loss_file["famae"].item()
+    best_farmse = loss_file["farmse"].item()
     best_qmae   = loss_file["qmae"].item()
     best_qrmse  = loss_file["qrmse"].item()
     best_dmae   = loss_file["dmae"].item()
     best_drmse  = loss_file["drmse"].item()
     best_step   = loss_file["step"].item()
 else:
-    best_loss  = np.Inf #initialize best loss to infinity
-    best_emae  = np.Inf
-    best_ermse = np.Inf
-    best_fmae  = np.Inf
-    best_frmse = np.Inf
-    best_qmae  = np.Inf
-    best_qrmse = np.Inf
-    best_dmae  = np.Inf
-    best_drmse = np.Inf
-    best_step  = 0.
+    best_loss   = np.Inf #initialize best loss to infinity
+    best_emae   = np.Inf
+    best_ermse  = np.Inf
+    best_fmae   = np.Inf
+    best_frmse  = np.Inf
+    best_famae  = np.Inf
+    best_farmse = np.Inf
+    best_qmae   = np.Inf
+    best_qrmse  = np.Inf
+    best_dmae   = np.Inf
+    best_drmse  = np.Inf
+    best_step   = 0.
     np.savez(best_loss_file, loss=best_loss, emae=best_emae,   ermse=best_ermse, 
                                              fmae=best_fmae,   frmse=best_frmse, 
+                                             famae=best_famae, farmse=best_farmse, 
                                              qmae=best_qmae,   qrmse=best_qrmse, 
                                              dmae=best_dmae,   drmse=best_drmse, 
                                              step=best_step)
 
 #for calculating average performance on the training set
 def reset_averages():
-    return 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    return 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
-def update_averages(num, tmploss_avg, tmploss, emse_avg, emse, emae_avg, emae, fmse_avg, fmse, fmae_avg, fmae, 
+def update_averages(num, tmploss_avg, tmploss, emse_avg, emse, emae_avg, emae, fmse_avg, fmse, fmae_avg, fmae, famse_avg, famse, famae_avg, famae, 
                     qmse_avg, qmse, qmae_avg, qmae, dmse_avg, dmse, dmae_avg, dmae):
     num += 1
     tmploss_avg += (tmploss-tmploss_avg)/num
@@ -295,14 +303,16 @@ def update_averages(num, tmploss_avg, tmploss, emse_avg, emse, emae_avg, emae, f
     emae_avg += (emae-emae_avg)/num
     fmse_avg += (fmse-fmse_avg)/num
     fmae_avg += (fmae-fmae_avg)/num
+    famse_avg += (famse-famse_avg)/num
+    famae_avg += (famae-famae_avg)/num
     qmse_avg += (qmse-qmse_avg)/num
     qmae_avg += (qmae-qmae_avg)/num
     dmse_avg += (dmse-dmse_avg)/num
     dmae_avg += (dmae-dmae_avg)/num
-    return num, tmploss_avg, emse_avg, emae_avg, fmse_avg, fmae_avg, qmse_avg, qmae_avg, dmse_avg, dmae_avg
+    return num, tmploss_avg, emse_avg, emae_avg, fmse_avg, fmae_avg, famse_avg, famae_avg, qmse_avg, qmae_avg, dmse_avg, dmae_avg
 
 #initialize training set error averages
-num_t, tmploss_avg_t, emse_avg_t, emae_avg_t, fmse_avg_t, fmae_avg_t, qmse_avg_t, qmae_avg_t, dmse_avg_t, dmae_avg_t = reset_averages()
+num_t, tmploss_avg_t, emse_avg_t, emae_avg_t, fmse_avg_t, fmae_avg_t, famse_avg_t, famae_avg_t, qmse_avg_t, qmae_avg_t, dmse_avg_t, dmae_avg_t = reset_averages()
 
 #create tensorflow session
 with tf.Session() as sess:
@@ -340,10 +350,10 @@ with tf.Session() as sess:
 
         #perform training step 
         step += 1
-        _, tmploss, emse, emae, fmse, fmae, qmse, qmae, dmse, dmae = sess.run([train_op, loss_t, emse_t, emae_t, fmse_t, fmae_t, qmse_t, qmae_t, dmse_t, dmae_t], options=run_options, feed_dict={nn.keep_prob: args.keep_prob}, run_metadata=run_metadata)
+        _, tmploss, emse, emae, fmse, fmae, famse, famae, qmse, qmae, dmse, dmae = sess.run([train_op, loss_t, emse_t, emae_t, fmse_t, fmae_t, famse_t, famae_t, qmse_t, qmae_t, dmse_t, dmae_t], options=run_options, feed_dict={nn.keep_prob: args.keep_prob}, run_metadata=run_metadata)
         
         #update averages
-        num_t, tmploss_avg_t, emse_avg_t, emae_avg_t, fmse_avg_t, fmae_avg_t, qmse_avg_t, qmae_avg_t, dmse_avg_t, dmae_avg_t = update_averages(num_t, tmploss_avg_t, tmploss, emse_avg_t, emse, emae_avg_t, emae, fmse_avg_t, fmse, fmae_avg_t, fmae, qmse_avg_t, qmse, qmae_avg_t, qmae, dmse_avg_t, dmse, dmae_avg_t, dmae)
+        num_t, tmploss_avg_t, emse_avg_t, emae_avg_t, fmse_avg_t, fmae_avg_t, famse_avg_t, famae_avg_t, qmse_avg_t, qmae_avg_t, dmse_avg_t, dmae_avg_t = update_averages(num_t, tmploss_avg_t, tmploss, emse_avg_t, emse, emae_avg_t, emae, fmse_avg_t, fmse, fmae_avg_t, fmae, famse_avg_t, famse, famae_avg_t, famae, qmse_avg_t, qmse, qmae_avg_t, qmae, dmse_avg_t, dmse, dmae_avg_t, dmae)
 
         #save progress
         if (step % args.save_interval == 0):
@@ -356,11 +366,11 @@ with tf.Session() as sess:
             sess.run(load_averaged_variables_op)
 
             #initialize averages to 0
-            num_v, tmploss_avg_v, emse_avg_v, emae_avg_v, fmse_avg_v, fmae_avg_v, qmse_avg_v, qmae_avg_v, dmse_avg_v, dmae_avg_v = reset_averages()
+            num_v, tmploss_avg_v, emse_avg_v, emae_avg_v, fmse_avg_v, fmae_avg_v, famse_avg_v, famae_avg_v, qmse_avg_v, qmae_avg_v, dmse_avg_v, dmae_avg_v = reset_averages()
             #compute averages
             for i in range(args.num_valid//args.valid_batch_size):
-                tmploss, emse, emae, fmse, fmae, qmse, qmae, dmse, dmae = sess.run([loss_v, emse_v, emae_v, fmse_v, fmae_v, qmse_v, qmae_v, dmse_v, dmae_v])
-                num_v, tmploss_avg_v, emse_avg_v, emae_avg_v, fmse_avg_v, fmae_avg_v, qmse_avg_v, qmae_avg_v, dmse_avg_v, dmae_avg_v = update_averages(num_v, tmploss_avg_v, tmploss, emse_avg_v, emse, emae_avg_v, emae, fmse_avg_v, fmse, fmae_avg_v, fmae, qmse_avg_v, qmse, qmae_avg_v, qmae, dmse_avg_v, dmse, dmae_avg_v, dmae)
+                tmploss, emse, emae, fmse, fmae, famse, famae, qmse, qmae, dmse, dmae = sess.run([loss_v, emse_v, emae_v, fmse_v, fmae_v, famse_v, famae_v, qmse_v, qmae_v, dmse_v, dmae_v])
+                num_v, tmploss_avg_v, emse_avg_v, emae_avg_v, fmse_avg_v, fmae_avg_v, famse_avg_v, famae_avg_v, qmse_avg_v, qmae_avg_v, dmse_avg_v, dmae_avg_v = update_averages(num_v, tmploss_avg_v, tmploss, emse_avg_v, emse, emae_avg_v, emae, fmse_avg_v, fmse, fmae_avg_v, fmae, famse_avg_v, famse, famae_avg_v, famae, qmse_avg_v, qmse, qmae_avg_v, qmae, dmse_avg_v, dmse, dmae_avg_v, dmae)
 
             #store results in dictionary
             results = {}
@@ -371,6 +381,9 @@ with tf.Session() as sess:
             if data.F is not None:
                 results["forces_mae_valid"]  = fmae_avg_v
                 results["forces_rmse_valid"] = np.sqrt(fmse_avg_v)
+            if data.Fa is not None:
+                results["atomic_energy_forces_mae_valid"]  = famae_avg_v
+                results["atomic_energy_forces_rmse_valid"] = np.sqrt(famse_avg_v)
             if data.Q is not None:
                 results["charge_mae_valid"]  = qmae_avg_v
                 results["charge_rmse_valid"] = np.sqrt(qmse_avg_v)
@@ -392,6 +405,12 @@ with tf.Session() as sess:
                 else:
                     best_fmae  = np.Inf
                     best_frmse = np.Inf
+                if data.Fa is not None:
+                    best_famae   = results["atomic_energy_forces_mae_valid"]
+                    best_farmse  = results["atomic_energy_forces_rmse_valid"]
+                else:
+                    best_famae  = np.Inf
+                    best_farmse = np.Inf
                 if data.Q is not None:
                     best_qmae   = results["charge_mae_valid"]
                     best_qrmse  = results["charge_rmse_valid"]
@@ -407,6 +426,7 @@ with tf.Session() as sess:
                 best_step = step
                 np.savez(best_loss_file, loss=best_loss, emae=best_emae,   ermse=best_ermse, 
                                          fmae=best_fmae,   frmse=best_frmse, 
+                                         famae=best_famae, farmse=best_farmse, 
                                          qmae=best_qmae,   qrmse=best_qrmse, 
                                          dmae=best_dmae,   drmse=best_drmse, 
                                          step=best_step)
@@ -418,6 +438,9 @@ with tf.Session() as sess:
             if data.F is not None:
                 results["forces_mae_best"]  = best_fmae
                 results["forces_rmse_best"] = best_frmse
+            if data.Fa is not None:
+                results["atomic_energy_forces_mae_best"]  = best_famae
+                results["atomic_energy_forces_rmse_best"] = best_farmse
             if data.Q is not None:
                 results["charge_mae_best"]  = best_qmae
                 results["charge_rmse_best"] = best_qrmse
@@ -446,7 +469,7 @@ with tf.Session() as sess:
             if data.D is not None:
                 results["dipole_mae_train"]  = dmae_avg_t
                 results["dipole_rmse_train"] = np.sqrt(dmse_avg_t)
-            num_t, tmploss_avg_t, emse_avg_t, emae_avg_t, fmse_avg_t, fmae_avg_t, qmse_avg_t, qmae_avg_t, dmse_avg_t, dmae_avg_t = reset_averages()
+            num_t, tmploss_avg_t, emse_avg_t, emae_avg_t, fmse_avg_t, fmae_avg_t, famse_avg_t, famae_avg_t, qmse_avg_t, qmae_avg_t, dmse_avg_t, dmae_avg_t = reset_averages()
 
             summary = create_summary(results)
             summary_writer.add_summary(summary, global_step=step)
